@@ -1,21 +1,23 @@
 ---
-title: "PML-project"
+title: "PML-project: Prediction Assignment Submission"
 author: "Zack Zox"
 date: '`r format(Sys.Date(), "%d %B, %Y")`'
 output:
   html_document:
     toc: yes
+    number_sections: true
+    theme: cerulean
+    highlight: tango
 ---
 ```{r setup, echo=FALSE, warning = F,message=F}
 library(knitr)
-opts_chunk$set(echo = FALSE)
+opts_chunk$set(echo = FALSE, comment=NA)
 library(ggplot2)
 library(caret)
-#library(randomForest)
 library(doMC)
 library(reshape2)
 library(dplyr)
-# load("project.Rdata")
+library(randomForest)
 ```
 
 ```{r help, warnings=F}
@@ -39,42 +41,44 @@ pml_write_files = function(x){
 
 # Background  
 
-« Devices such as Jawbone Up, Nike FuelBand, and Fitbit were used to collect data about personal activity.  If people regularly quantify how much of a particular activity they do, they rarely quantify how well they do it. Six participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different ways: 
+Devices such as Jawbone Up, Nike FuelBand, and Fitbit were used to collect data about personal activity. Six participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different ways. The objective is to find characteristics in order to quantify how well the movements were done. The five ways (A:right and B-C-D-E: wrong) are:  
 
-* A exactly according to the specification 
-* B throwing the elbows to the front
-* C lifting the dumbbell only halfway 
-* D lowering the dumbbell only halfway
-* E throwing the hips to the front
+* A- exactly according to the specification 
+* B- throwing the elbows to the front
+* C- lifting the dumbbell only halfway 
+* D- lowering the dumbbell only halfway
+* E- throwing the hips to the front
+
+The objective is to the manner (classe) in which they did the exercice with the data collected on one sampling.
 
 # Data 
-## Description 
+## description 
 
-Data from accelerometers on the belt, forearm, arm, and dumbell of the participants was sampled ( at frequency of 45Hz) with identification of each class of movement. 
+Data from accelerometers on the belt, forearm, arm, and dumbell of the participants was sampled (at frequency of 45Hz) during the whole sequence, with identification of each class of movement for each sampling. 
 
-Training data set has 19622 observations with 159 variables. This is an average of 65 samplings during each of the 300 movements (6 participants x 5 types x 10 repetitions). Sinces classes are well balanced, we are going to use accuracy as a measure of model performance.
+**Training data** set has 19622 observations with 159 variables. This is an average of 65 samplings during each of the 300 movements (6 participants x 5 types x 10 repetitions). Following is the breakdown of the samplings by classes. The classes are well balanced.  We are going to use * accuracy * as a measure of model performance. 
 
-```
-  A    B    C    D    E 
-5580 3797 3422 3216 3607 
-```  
-
-How well can we predict the manner in which they did the exercice with the data collected on one samplings? Testing data set has 20 samplings on the same 159 variables. *This task could be difficult since we have only samplings and no global observations on the movemement to identify*.
-
-```{r data}
+```{r data, cache=TRUE}
 training <- read.csv("pml-training.csv", row.names = 1, na.strings=c("NA","","#DIV/0!"))
 testing  <-  read.csv("pml-testing.csv", row.names = 1,  na.strings=c("NA","","#DIV/0!"))
 table(training$classe)
 ```
 
-## Features identification
+**Testing data ** set has 20 samplings on the same 159 variables. 
 
-* Many features are missing both the training and testing set and will be removed. (A feature will be removed if more thant 90% is missing). 58 remaining features + classe  . 
-* Remove 6 first columns (samplings identification)
-* Test for near zero features. None found.
-* 52 features remaining for modeling
+## features identification  
+* The 6 first columns are used for samplings identification and are removed from the features list.
+* Many features have missing values both in the testing set and the training set.  Following figure shows distribution of missing columns for testing set. Same situation for the training set. Missing valued features are removed. (A feature is removed if more than 90% of its values are missing). 
+* A test was donne on the remaining features for near zero variation.  None was found.
+* Correlation between features was tested at the critical level of r=0.90. Seven features were identified as redundant. We do not suspect that correlation would play a negative role in the prediction and we kept all correlated features.
+* All features were centered and scaled.
 
-```{r missing }
+```{r identification }
+# Drop first columns
+training <- training[,-c(1:6)]
+testing  <-  testing[,-c(1:6)]
+
+# visualize missing values on testing set
 ggplot_missing(testing)
 
  # remove if missing more than 90%
@@ -83,95 +87,100 @@ missColumns <- apply(training, 2, function(x) sum(is.na(x)) > tresh )
 # sum(missColumns)
 training <- training[,!missColumns]
 testing <-   testing[,!missColumns]
-
-# Drop first columns
-training <- training[,-c(1:6)]
-testing  <-  testing[,-c(1:6)]
+predictors <- names(training)[names(training) != "classe"]
 
 # test for near zero features
 nzv <- nearZeroVar(training, saveMetrics = T)
 # sum(nzv$nzv)         # none
 
 # test correlation
-predCor= cor(training[,predictors])
-highCor=findCorrelation(predCor,0.75)
-names(training[,highCor])
-training <- training[,-highCor]
-testing  <-  testing[,-highCor]
-ncol(training)
+# predCor= cor(training[,predictors])
+# highCor=findCorrelation(predCor,0.90)
+# names(training[,highCor])
+# training <- training[,-highCor]
+# testing  <-  testing[,-highCor]
+# ncol(training)
+
+#pre-processing
+procValues <- preProcess(training, method = c("center", "scale"))
+training <- predict(procValues, training)
+testing  <- predict(procValues, testing)
 
 ```
 
-# Model 
-## used
-        
-“how you built your model”
-“why you made the choices you did”
-Parameters
-Algorithm
-So I used caret with random forest as my model with 5 fold cross validation
-# The gbm function does not accept factor response values so we will make a copy and modify the outcome variable
+So we have 52 features available for modeling. 
 
-## parameters identification 
+# Model building
+We supposed that there would be many intersections between samplings of different classes of movement and classification for these cases would be difficult. We planned to use a non linear model that allows interactions. We selected « random forest » as the method of prediction. Since it was successfull, we did not test any other model. 
 
-“how you used cross validation”
-“what you think the expected out of sample error is”
-Evaluation
-Typically, for a classification problem with p features, √p features are used in each split
+## parameters tuning
+* This model has, in * caret *, only one parameter: * mtry *, the number of variables randomly sampled as candidates at each split. Typically, for a classification problem with p features, √p features are used in each split. We chose to test mtry for 2,4,6,8,10,12 featrues at each split. 
+* We limited the number of trees generated (default = 500) to 60. 
+* Parameter tuning was done through repeated cross validation (10 folds, 3 times)
+* On the training set, we kept 60% of the samplings for model building and kept 40% for model validation.
 
 ```{r random forest, cache=TRUE}
 #Partition rows into training and validation
 set.seed(123876)
-
 inTrain = createDataPartition(training$classe, p = 0.60, list=FALSE)
-trainx   = training[ inTrain,]
+train    = training[ inTrain,]
 valid    = training[-inTrain,]
-predictors <- names(training)[names(training) != "classe"]
-
-#pre-processing
-procValues <- preProcess(trainx, method = c("center", "scale"))
-trainScd <- predict(procValues, trainx)
-validScd <- predict(procValues, valid)
-testScd  <- predict(procValues, testing)
 
 registerDoMC(cores = 3)
-ctrl=  trainControl(method = "repeatedcv",number = 10,  repeats = 10)    ## repeated ten times
-grid <- expand.grid( mtry = seq(2, 27, by = 4))
-rf_model= train( y= trainScd$classe, x=trainScd[,predictors] ,method="rf", 
-                trControl=ctrl, tuneGrid = grid, ntree=40) # ,tuneLength=10)
+ctrl=  trainControl(method = "repeatedcv",number = 10,  repeats = 3)    
+grid <- expand.grid( mtry = seq(2, 12, by = 2))
+rf_model= train( y= train$classe, x=train[,predictors] ,
+                 method="rf", trControl=ctrl, tuneGrid = grid, ntree=60) 
 ```
 
+## model behavior
+The task could be difficult since we have only samplings and no global observations on the movemement itself to identify. But fortunately, the actual results showed that is not the case. All models (with each of the six «mtry» values) have a very good accuracy. The best accuracy of 99,2 % is with mtry=6.
+
 ```{r results}
-print(rf_model)
-plot(rf_model)
+# print(rf_model,xlab='Value of mtry')
+plot(rf_model,xlab='Value of parameter= mtry')
+```  
+
+Accuracy converges rapidly around 30-40 trees. So there is no need to increase number of trees.
+
+```{r convergenc}
+plot(rf_model$finalModel,main='Models performance with number of trees')
+```
+
+## model summary on training set
+Final model has an OOB error rate of 1,03% on the training set.
+
+```{r confusion}
 print(rf_model$finalModel)
-plot(rf_model$finalModel)
-rf_model$times
+# rf_model$times
 # save(rf_model, file="rf_model-proox.RData")
 # load(file="rf_model.RData")
 ```  
 
-## model prediction validation   
-on test cases
-Ultimately, the prediction model is to be run on the test data to predict the outcome of 20 different test cases.
+# prediction
+## prediction on validation set    
+How accurately can we generalize on the validation set ?  Using the final model, we predicted the classes on the validation set. We had an identical 99,2% accuracy rate for the set. So we are confident with the model built.
 
-```{r testset}
+```{r valid set }
 ## validation set these data can be used to get an independent assessment of model e cacy. They should not be used during model training.
 #validation set
-cvPred <- predict(rf_model, validScd)
-confusionMatrix(cvPred, validScd$classe)
+cvPred <- predict(rf_model, valid)
+confusionMatrix(cvPred, valid$classe)
+```
 
+## prediction on the 20 test sets
+
+Finally, the prediction model was run on the test data to predict the classes for the 20 test cases and the submission files were created.
+
+```{r test}
 #Predictions on the real testing set
-testingPred <- predict(rf_model, testScd )
-testingPred 
-
+testingPred <- predict(rf_model, testing )
+# testingPred 
 pml_write_files(as.character(testingPred))
 
 ref=c("B","A","B","A","A","E","D","B","A","A","B","C","B","A","E","E","A","B","B","B")
-identical(ref, as.character(testingPred))
+# identical(ref, as.character(testingPred))
 # B A B A   A E D B  A A B C  B A E E  A B B B  
-  B A B A   A E D B  A A B C  B A E E  A B B B
 ```
-# conclusion
 
-                  
+                 
