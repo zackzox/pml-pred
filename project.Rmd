@@ -1,0 +1,177 @@
+---
+title: "PML-project"
+author: "Zack Zox"
+date: '`r format(Sys.Date(), "%d %B, %Y")`'
+output:
+  html_document:
+    toc: yes
+---
+```{r setup, echo=FALSE, warning = F,message=F}
+library(knitr)
+opts_chunk$set(echo = FALSE)
+library(ggplot2)
+library(caret)
+#library(randomForest)
+library(doMC)
+library(reshape2)
+library(dplyr)
+# load("project.Rdata")
+```
+
+```{r help, warnings=F}
+# plots missingness
+ggplot_missing <- function(x){
+  x %>% is.na %>% 
+    melt %>%
+    ggplot(data = ., aes(x = Var2, y = Var1)) +  geom_raster(aes(fill = value)) +
+    scale_fill_grey(name = "",labels = c("Present","Missing")) +
+    theme_minimal() + theme(axis.text.x  = element_text(angle=45, vjust=0.5,size=4)) + 
+    labs(x = "Variables", y = "Observations")
+}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("assgn/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+```
+
+# Background  
+
+« Devices such as Jawbone Up, Nike FuelBand, and Fitbit were used to collect data about personal activity.  If people regularly quantify how much of a particular activity they do, they rarely quantify how well they do it. Six participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different ways: 
+
+* A exactly according to the specification 
+* B throwing the elbows to the front
+* C lifting the dumbbell only halfway 
+* D lowering the dumbbell only halfway
+* E throwing the hips to the front
+
+# Data 
+## Description 
+
+Data from accelerometers on the belt, forearm, arm, and dumbell of the participants was sampled ( at frequency of 45Hz) with identification of each class of movement. 
+
+Training data set has 19622 observations with 159 variables. This is an average of 65 samplings during each of the 300 movements (6 participants x 5 types x 10 repetitions). Sinces classes are well balanced, we are going to use accuracy as a measure of model performance.
+
+```
+  A    B    C    D    E 
+5580 3797 3422 3216 3607 
+```  
+
+How well can we predict the manner in which they did the exercice with the data collected on one samplings? Testing data set has 20 samplings on the same 159 variables. *This task could be difficult since we have only samplings and no global observations on the movemement to identify*.
+
+```{r data}
+training <- read.csv("pml-training.csv", row.names = 1, na.strings=c("NA","","#DIV/0!"))
+testing  <-  read.csv("pml-testing.csv", row.names = 1,  na.strings=c("NA","","#DIV/0!"))
+table(training$classe)
+```
+
+## Features identification
+
+* Many features are missing both the training and testing set and will be removed. (A feature will be removed if more thant 90% is missing). 58 remaining features + classe  . 
+* Remove 6 first columns (samplings identification)
+* Test for near zero features. None found.
+* 52 features remaining for modeling
+
+```{r missing }
+ggplot_missing(testing)
+
+ # remove if missing more than 90%
+tresh <- nrow(training) * 0.90      
+missColumns <- apply(training, 2, function(x) sum(is.na(x)) > tresh )
+# sum(missColumns)
+training <- training[,!missColumns]
+testing <-   testing[,!missColumns]
+
+# Drop first columns
+training <- training[,-c(1:6)]
+testing  <-  testing[,-c(1:6)]
+
+# test for near zero features
+nzv <- nearZeroVar(training, saveMetrics = T)
+# sum(nzv$nzv)         # none
+
+# test correlation
+predCor= cor(training[,predictors])
+highCor=findCorrelation(predCor,0.75)
+names(training[,highCor])
+training <- training[,-highCor]
+testing  <-  testing[,-highCor]
+ncol(training)
+
+```
+
+# Model 
+## used
+        
+“how you built your model”
+“why you made the choices you did”
+Parameters
+Algorithm
+So I used caret with random forest as my model with 5 fold cross validation
+# The gbm function does not accept factor response values so we will make a copy and modify the outcome variable
+
+## parameters identification 
+
+“how you used cross validation”
+“what you think the expected out of sample error is”
+Evaluation
+Typically, for a classification problem with p features, √p features are used in each split
+
+```{r random forest, cache=TRUE}
+#Partition rows into training and validation
+set.seed(123876)
+
+inTrain = createDataPartition(training$classe, p = 0.60, list=FALSE)
+trainx   = training[ inTrain,]
+valid    = training[-inTrain,]
+predictors <- names(training)[names(training) != "classe"]
+
+#pre-processing
+procValues <- preProcess(trainx, method = c("center", "scale"))
+trainScd <- predict(procValues, trainx)
+validScd <- predict(procValues, valid)
+testScd  <- predict(procValues, testing)
+
+registerDoMC(cores = 3)
+ctrl=  trainControl(method = "repeatedcv",number = 10,  repeats = 10)    ## repeated ten times
+grid <- expand.grid( mtry = seq(2, 27, by = 4))
+rf_model= train( y= trainScd$classe, x=trainScd[,predictors] ,method="rf", 
+                trControl=ctrl, tuneGrid = grid, ntree=40) # ,tuneLength=10)
+```
+
+```{r results}
+print(rf_model)
+plot(rf_model)
+print(rf_model$finalModel)
+plot(rf_model$finalModel)
+rf_model$times
+# save(rf_model, file="rf_model-proox.RData")
+# load(file="rf_model.RData")
+```  
+
+## model prediction validation   
+on test cases
+Ultimately, the prediction model is to be run on the test data to predict the outcome of 20 different test cases.
+
+```{r testset}
+## validation set these data can be used to get an independent assessment of model e cacy. They should not be used during model training.
+#validation set
+cvPred <- predict(rf_model, validScd)
+confusionMatrix(cvPred, validScd$classe)
+
+#Predictions on the real testing set
+testingPred <- predict(rf_model, testScd )
+testingPred 
+
+pml_write_files(as.character(testingPred))
+
+ref=c("B","A","B","A","A","E","D","B","A","A","B","C","B","A","E","E","A","B","B","B")
+identical(ref, as.character(testingPred))
+# B A B A   A E D B  A A B C  B A E E  A B B B  
+  B A B A   A E D B  A A B C  B A E E  A B B B
+```
+# conclusion
+
+                  
