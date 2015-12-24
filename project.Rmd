@@ -6,9 +6,20 @@ output:
   html_document:
     toc: yes
     number_sections: true
-    theme: cerulean
-    highlight: tango
 ---
+<style type="text/css">
+body, td { font-size: 16px;  font-family: Times;}
+code.r   { font-size: 11px; }
+pre      { font-size: 10px; font-family: 'DejaVu Sans Mono', 'Droid Sans Mono', 'Lucida Console', Consolas, Monaco, monospace;}
+pre code { font-size: 10px; font-family: 'DejaVu Sans Mono', 'Droid Sans Mono', 'Lucida Console', Consolas, Monaco, monospace;}
+code     { font-size: 16px;   font-family: Times; }
+
+h1 {  margin: 24pt 0pt 0pt 0pt; font-size: 14pt;  color: #365F91;  }
+h2 {  font-size: 13pt;color: #4F81BD; }
+h3 {  font-size: 11pt;color: #4F81BD;}
+</style>
+
+
 ```{r setup, echo=FALSE, warning = F,message=F}
 library(knitr)
 opts_chunk$set(echo = FALSE, comment=NA)
@@ -23,11 +34,12 @@ library(randomForest)
 ```{r help, warnings=F}
 # plots missingness
 ggplot_missing <- function(x){
-  x %>% is.na %>% 
+  x %>% 
+    is.na %>%
     melt %>%
     ggplot(data = ., aes(x = Var2, y = Var1)) +  geom_raster(aes(fill = value)) +
     scale_fill_grey(name = "",labels = c("Present","Missing")) +
-    theme_minimal() + theme(axis.text.x  = element_text(angle=45, vjust=0.5,size=4)) + 
+    theme_minimal() +theme(axis.text.x=element_blank()) + # theme(axis.text.x  = element_text(angle=45, vjust=0.5,size=0)) + 
     labs(x = "Variables", y = "Observations")
 }
 pml_write_files = function(x){
@@ -41,7 +53,7 @@ pml_write_files = function(x){
 
 # Background  
 
-Devices such as Jawbone Up, Nike FuelBand, and Fitbit are used to collect data about personal activity. Six participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different ways. The objective is to find characteristics in order to quantify how well the movements were done. The five ways (A:right and B-C-D-E: wrong) are:  
+Devices such as Jawbone Up, Nike FuelBand, and Fitbit are used to collect data about personal activity. Six participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different ways. The objective is to find how well the movements were done. The five ways (A:right and B-C-D-E:wrong) are:  
 
 * A- exactly according to the specification 
 * B- throwing the elbows to the front
@@ -50,11 +62,11 @@ Devices such as Jawbone Up, Nike FuelBand, and Fitbit are used to collect data a
 * E- throwing the hips to the front
 
 # Data 
-## description 
+## Description 
 
-Data from accelerometers on the belt, forearm, arm, and dumbell of the participants was sampled (at frequency of 45Hz) during the whole sequence, with identification of the class of movement for each sampling. Prediction of exercise class must be done only with data from one sampling (no complete movement present in the test data set).
+Data from accelerometers on the belt, forearm, arm, and dumbell of the participants were sampled (at frequency of 45Hz) during the whole sequence, with identification of the class of movement for each sampling. Prediction of exercise class must be done only with data from one sampling (no complete movement present in the test data set).
 
-* **Training data** set has 19 622 observations with 159 variables. This is an average of 65 samplings during each of the 300 movements (6 participants x 5 types x 10 repetitions). Following is the breakdown of the samplings by classes. Since the classes are well balanced,  we are going to use *accuracy* as a measure of model performance. 
+* **Training data** set has 19 622 observations with 159 variables. This is an average of 65 samplings during each of the 300 movements (6 participants x 5 types x 10 repetitions). Following is the breakdown of the samplings by classes. 
 ```{r data}
 training <- read.csv("pml-training.csv", row.names = 1, na.strings=c("NA","","#DIV/0!"))
 testing  <- read.csv("pml-testing.csv", row.names = 1,  na.strings=c("NA","","#DIV/0!"))
@@ -63,12 +75,12 @@ table(training$classe)
 
 * **Testing data ** set has 20 samplings on the same 159 variables. 
 
-## features identification  
+## Features identification  
 * The first 6 columns are used for sampling identification and are removed from the features list. 
-* Many features have missing values both in the testing set and in the training set.  Following figure shows distribution of missing columns for testing set. Same situation for the training set. Missing valued features are removed. (A feature was removed if more than 90% of its values are missing.) A test was done on the remaining features for near-zero-variation values.  None was found.  
-* All features were centered and scaled on the training set.
+* Many features have missing values both in the testing set and in the training set.  Following figure shows distribution of missing columns for testing set. Same situation for the training set. Features with missing values are removed. (A feature was removed if more than 90% of its values are missing.) A test was done on the remaining features for near-zero-variation values.  None was found.  
+* All features were centered and scaled on the training set. Same operations with same parameters were applied on the test set.
 
-```{r identification }
+```{r identification}
     # Drop first columns
 training <- training[,-c(1:6)]
 testing  <-  testing[,-c(1:6)]
@@ -117,16 +129,16 @@ rf_model= train( y= train$classe, x=train[,predictors] ,
                  method="rf", trControl=ctrl, tuneGrid = grid, ntree=100) 
 ```
 
-We supposed that there would be many intersections between samplings of different classes of movement and classification for these cases would be difficult. We planned to use a non-linear model that allows interactions. We selected « random forest » as the method of prediction. Since it was successful, we did not test any other model. 
+We supposed that there would be many intersections between samplings of different classes of movement and classification for these cases would be difficult. We planned to use a non-linear model that allows interactions. We selected « random forest » as the method of prediction. It was successful, so we did not test any other model. Since the classes are well balanced,  we used *accuracy* as a measure of model performance.
 
-> In random forests, there is less need for cross-validation or a separate test set to get an unbiased estimate of the test set error, since it is estimated internally, during the run. The unbiased generalization error is calculated on out-of-bag (OOB) samples (about one third of the samples) not used in the bootstrap sample from the original data for each tree. (from the documentation) 
+In random forests, there is less need for cross-validation or a separate test set to get an unbiased estimate of the test set error, since it is estimated internally, during the run. The unbiased generalization error is calculated on out-of-bag (OOB) samples (about one third of the samples) not used in the bootstrap sample from the original data for each tree. (from documentation) 
 
 But to verify this assertion, we decided to split the samplings into two sets: *training* (60%) and *validation* (40%). Prediction on the validation set will be calculated.
 
-## parameters tuning
-* This model has in,  *caret*, only one parameter: *mtry*, the number of variables randomly sampled as candidates at each split. Typically, for a classification problem with p features, √p features are used in each split. We chose to test mtry for 3,7,10,14 features at each split. 
+## Parameters tuning
+* Random forest in *caret* has only one parameter: *mtry*, the number of variables randomly sampled as candidates at each split. Typically, for a classification problem with p features, √p features are used in each split (7 for our problem). We chose to test *mtry* for 3,7,10,14 features at each split. 
 * We limited the number of trees generated (default = 500) to 100. 
-* Parameter tuning was done through 3 cross validation runs (10 folds)
+* Parameter tuning was done through 3 cross-validation runs (10 folds)
 
 The model accuracy is quite high for all values. There is no noticeable difference between the values of mtry, accuracy going from 99,0% to 99,2%.  The best accuracy of 99,2 % is with mtry=10 features.
 
@@ -135,7 +147,7 @@ print(rf_model)
 #plot(rf_model,xlab='Value of parameter= mtry')
 ``` 
 
-## model validation  
+## Model validation  
 ```{r v1}
 er=rf_model$finalModel$err.rate
 y=round(er[dim(er)[1],1],3)*100
@@ -170,7 +182,7 @@ y=(1-round(z$overall[1],3))*100
 ```  
 ### Validation set error  
 How accurately can we generalize on the validation set?  Using the final model, we predicted the classes on the validation set to get an independent assessment of model accuracy.
-We have a `r round(z$overall[1],3)` accuracy rate for validation set. So we are confident with the model built.
+We have a `r round(z$overall[1],3)` accuracy rate for the validation set. So we are confident with the model built.
 
 ```{r valid2}
 z 
